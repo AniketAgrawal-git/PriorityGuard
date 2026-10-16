@@ -1,8 +1,15 @@
 import plotly.graph_objects as go
 import plotly.express as px
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
-def create_gantt_chart(events: List[Dict[str, Any]], task_results: List[Dict[str, Any]], total_time: int) -> go.Figure:
+def create_gantt_chart(
+    events: List[Dict[str, Any]], 
+    task_results: List[Dict[str, Any]], 
+    total_time: int,
+    title: str = "Interactive Task Execution Gantt Timeline",
+    marker_time: Optional[int] = None,
+    marker_label: str = "⚡ Divergence"
+) -> go.Figure:
     """
     Build an interactive Gantt chart of CPU execution, task states, and events.
     """
@@ -170,7 +177,7 @@ def create_gantt_chart(events: List[Dict[str, Any]], task_results: List[Dict[str
         added_legend.add("Deadline")
 
     fig.update_layout(
-        title="Interactive Task Execution Gantt Timeline",
+        title=title,
         barmode='overlay',
         xaxis=dict(
             title="Simulation Time (ticks)",
@@ -189,7 +196,7 @@ def create_gantt_chart(events: List[Dict[str, Any]], task_results: List[Dict[str
         plot_bgcolor='#1E222A',
         paper_bgcolor='#1E222A',
         font=dict(color='#E1E4EA', family="Segoe UI, sans-serif"),
-        height=350 + (len(task_order) * 45),
+        height=320 + (len(task_order) * 45),
         margin=dict(l=60, r=40, t=50, b=50),
         legend=dict(
             orientation="h",
@@ -199,6 +206,17 @@ def create_gantt_chart(events: List[Dict[str, Any]], task_results: List[Dict[str
             x=1
         )
     )
+
+    if marker_time is not None:
+        fig.add_vline(
+            x=marker_time, 
+            line_width=2, 
+            line_dash="dash", 
+            line_color="#FF4B4B",
+            annotation_text=f"{marker_label} (t={marker_time})", 
+            annotation_position="top left",
+            annotation_font_color="#FF4B4B"
+        )
     
     return fig
 

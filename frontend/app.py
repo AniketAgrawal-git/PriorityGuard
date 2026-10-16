@@ -9,6 +9,8 @@ sys.path.append(os.path.dirname(__file__))
 
 import engine_client
 import visualizations
+import state_inspector
+import time
 
 # Set Page Config
 st.set_page_config(
@@ -49,6 +51,20 @@ st.markdown("""
     .rec-box {
         background-color: #161B22;
         border-left: 4px solid #58A6FF;
+        padding: 14px;
+        border-radius: 4px;
+        margin: 10px 0px;
+    }
+    .decision-box {
+        background-color: #161B22;
+        border-left: 4px solid #3FB950;
+        padding: 14px;
+        border-radius: 4px;
+        margin: 10px 0px;
+    }
+    .divergence-box {
+        background-color: #161B22;
+        border-left: 4px solid #F0883E;
         padding: 14px;
         border-radius: 4px;
         margin: 10px 0px;
@@ -384,12 +400,12 @@ elif selected_page == "Page B: Task & Resource Editor":
                 st.success("Simulation complete! Check Page D / E.")
 
 # -----------------------------------------------------------------------------
-# PAGE C: SIMULATION WORKSPACE
+# PAGE C: SIMULATION WORKSPACE & STEP-BY-STEP REPLAY
 # -----------------------------------------------------------------------------
 elif selected_page == "Page C: Simulation Workspace":
-    st.title("🕹️ Simulation Interactive Workspace")
-    st.markdown("Execute, inspect, and step through scheduling decisions.")
-    
+    st.title("🕹️ Simulation Workspace & Step-by-Step Replay")
+    st.markdown("Pause, step through discrete events, inspect task states and dynamic priorities, filter event traces, and perform side-by-side execution trace comparisons.")
+
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         proto_choice = st.selectbox("Protocol", ["NONE", "PIP", "PCP"], 
@@ -397,56 +413,408 @@ elif selected_page == "Page C: Simulation Workspace":
         if proto_choice != st.session_state.current_workload.get("protocol"):
             st.session_state.current_workload["protocol"] = proto_choice
             st.session_state.last_simulation_results = None
+            st.session_state.step_event_idx = 0
+            st.rerun()
     with col2:
         if st.button("▶️ Run Entire Simulation"):
             st.session_state.last_simulation_results = None
+            st.session_state.step_event_idx = 0
             get_or_run_simulation()
             st.rerun()
-            
+
     sim_res = get_or_run_simulation()
-    
-    if sim_res:
-        events = sim_res.get("events", [])
-        total_time = sim_res.get("total_time", 0)
-        
-        # Timeline step slider
-        step_time = st.slider("Inspect Simulation State at Time Tick", min_value=0, max_value=total_time, value=total_time)
-        
-        # Filter events up to step_time
-        events_upto = [e for e in events if e["time"] <= step_time]
-        
-        # Determine state at step_time
-        # Find which task was running
-        current_running = "CPU IDLE"
-        for e in events_upto:
-            if e["time"] > step_time:
-                break
-            if e["type"] in ["TASK_START", "TASK_RESUME", "CONTEXT_SWITCH"]:
-                current_running = e["task_id"]
-            elif e["type"] in ["TASK_PREEMPTED", "TASK_BLOCKED", "TASK_COMPLETED", "PCP_CEILING_BLOCK"]:
-                if e["task_id"] == current_running:
-                    current_running = "CPU IDLE"
-                    
-        # State cards
-        sc1, sc2, sc3 = st.columns(3)
-        with sc1:
-            st.markdown(f"### Current Runner: `{current_running}`")
-        with sc2:
-            st.markdown(f"### Time: `{step_time}` / `{total_time}` ticks")
-        with sc3:
-            st.markdown(f"### Protocol: `{sim_res.get('protocol')}`")
-            
-        st.subheader("📜 Chronological Event Log")
-        log_df = pd.DataFrame([{
-            "Time": e["time"],
-            "Event": e["type"],
-            "Task": e.get("task_id", ""),
-            "Resource": e.get("resource_id", ""),
-            "Base Prio": e.get("base_priority", ""),
-            "Eff Prio": e.get("effective_priority", ""),
-            "Details": e.get("details", "")
-        } for e in events_upto])
-        st.dataframe(log_df, use_container_width=True, height=300)
+    if not sim_res:
+        st.warning("No simulation results available. Click 'Run Entire Simulation' above.")
+    else:
+        tab_replay, tab_compare = st.tabs([
+            "⏯️ Step-by-Step Execution & Live State Replay", 
+            "🔄 Trace Comparison: Protocol A vs. Protocol B"
+        ])
+
+        with tab_replay:
+            events = sim_res.get("events", [])
+            total_time = sim_res.get("total_time", 0)
+            if not events:
+                st.info("No events generated in this simulation.")
+            else:
+                if "step_event_idx" not in st.session_state:
+                    st.session_state.step_event_idx = len(events) - 1
+                
+                # Clamp step_event_idx
+                st.session_state.step_event_idx = max(0, min(st.session_state.step_event_idx, len(events) - 1))
+
+                # Replay Navigation Bar
+                st.markdown("### 🎮 Interactive Replay Controls")
+                nb_c1, nb_c2, nb_c3, nb_c4, nb_c5, nb_c6 = st.columns([1, 1, 1, 1, 1, 2])
+                with nb_c1:
+                    if st.button("⏮️ Start", help="Jump to first event (t=0)", use_container_width=True):
+                        st.session_state.step_event_idx = 0
+                        st.session_state.auto_play_active = False
+                        st.rerun()
+                with nb_c2:
+                    if st.button("◀️ Prev", help="Step backward one event", use_container_width=True):
+                        st.session_state.step_event_idx = max(0, st.session_state.step_event_idx - 1)
+                        st.session_state.auto_play_active = False
+                        st.rerun()
+                with nb_c3:
+                    if st.button("▶️ Next", help="Step forward one event", use_container_width=True):
+                        st.session_state.step_event_idx = min(len(events) - 1, st.session_state.step_event_idx + 1)
+                        st.session_state.auto_play_active = False
+                        st.rerun()
+                with nb_c4:
+                    if st.button("⏭️ End", help="Jump to conclusion event", use_container_width=True):
+                        st.session_state.step_event_idx = len(events) - 1
+                        st.session_state.auto_play_active = False
+                        st.rerun()
+                with nb_c5:
+                    if st.button("🔄 Reset", help="Reset step pointer", use_container_width=True):
+                        st.session_state.step_event_idx = 0
+                        st.session_state.auto_play_active = False
+                        st.rerun()
+                with nb_c6:
+                    auto_play = st.toggle("▶️ Auto Replay", value=st.session_state.get("auto_play_active", False))
+                    st.session_state.auto_play_active = auto_play
+
+                replay_delay = 0.8
+                if st.session_state.get("auto_play_active", False):
+                    speed_col, _ = st.columns([2, 3])
+                    with speed_col:
+                        replay_delay = st.select_slider(
+                            "Playback Pace", 
+                            options=[0.2, 0.4, 0.8, 1.5], 
+                            value=0.8, 
+                            format_func=lambda x: f"{x}s per event"
+                        )
+
+                # Event slider
+                slider_val = st.slider(
+                    "Scrub Timeline by Event Index", 
+                    min_value=0, 
+                    max_value=len(events) - 1, 
+                    value=st.session_state.step_event_idx,
+                    help="Slide to navigate through discrete simulation events."
+                )
+                if slider_val != st.session_state.step_event_idx:
+                    st.session_state.step_event_idx = slider_val
+                    st.session_state.auto_play_active = False
+                    st.rerun()
+
+                # Compute micro-state snapshot at selected event
+                snap = state_inspector.compute_system_snapshot(
+                    st.session_state.current_workload,
+                    events,
+                    st.session_state.step_event_idx
+                )
+
+                cur_t = snap["time"]
+                last_ev = snap["last_event"] or {}
+                cur_runner = snap["current_runner"]
+
+                # Top State Banner Metrics
+                st.markdown("---")
+                m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+                with m_c1:
+                    st.metric("⏱️ Simulation Time", f"t = {cur_t} ticks", f"Step {st.session_state.step_event_idx + 1} / {len(events)}")
+                with m_c2:
+                    runner_label = f"🟢 `{cur_runner}`" if cur_runner != "CPU IDLE" else "⚪ `IDLE`"
+                    runner_prio = snap["task_states"].get(cur_runner, {}).get("effective_priority", "N/A") if cur_runner != "CPU IDLE" else "—"
+                    st.metric("💻 CPU Active Task", runner_label, f"Eff Priority: {runner_prio}")
+                with m_c3:
+                    st.metric("⚡ Active Event Type", f"`{last_ev.get('type', 'N/A')}`", f"Task: {last_ev.get('task_id', 'None')}")
+                with m_c4:
+                    st.metric("🛡️ Protocol", f"`{sim_res.get('protocol')}`", f"{len(sim_res.get('inversions', []))} Inversion(s)")
+
+                # Decision Explanation Callout
+                st.markdown(f"""
+                <div class='decision-box'>
+                    <strong>💡 Scheduling Decision & Rationale at Step {st.session_state.step_event_idx + 1} (Time t={cur_t}):</strong><br>
+                    {snap['scheduling_decision']}
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 3 Panels: Task States, Mutexes, Queues
+                p_col1, p_col2 = st.columns([3, 2])
+                with p_col1:
+                    st.subheader("📋 Task States & Dynamic Effective Priorities")
+                    task_rows = []
+                    for tid, tinfo in snap["task_states"].items():
+                        st_icon = {
+                            "RUNNING": "🟢 RUNNING",
+                            "READY": "🟡 READY",
+                            "BLOCKED": "🔴 BLOCKED",
+                            "NOT_RELEASED": "⚪ NOT_RELEASED",
+                            "COMPLETED": "🏁 COMPLETED"
+                        }.get(tinfo["state"], tinfo["state"])
+
+                        eff = tinfo["effective_priority"]
+                        base = tinfo["base_priority"]
+                        if eff > base:
+                            prio_str = f"{eff} (⬆️ +{eff - base})"
+                        else:
+                            prio_str = f"{eff}"
+
+                        held = ", ".join(tinfo["holding_resources"]) if tinfo["holding_resources"] else "—"
+                        blocked_on = tinfo["blocked_on_resource"] or "—"
+                        deadline_status = "⚠️ MISSED" if tinfo["is_deadline_missed"] else "✅ OK"
+
+                        task_rows.append({
+                            "Task ID": tid,
+                            "Name": tinfo["name"],
+                            "State": st_icon,
+                            "Base Prio": base,
+                            "Effective Prio": prio_str,
+                            "Holding Mutex": held,
+                            "Blocked On": blocked_on,
+                            "Deadline": f"t={tinfo['deadline']} ({deadline_status})"
+                        })
+                    st.dataframe(pd.DataFrame(task_rows), use_container_width=True, hide_index=True)
+
+                with p_col2:
+                    st.subheader("🔒 Mutex Ownership & Priority Ceilings")
+                    mutex_rows = []
+                    for rid, minfo in snap["mutex_states"].items():
+                        status_str = f"🔒 Locked by `{minfo['owner']}`" if minfo["is_locked"] else "🔓 Free"
+                        waiters_str = ", ".join([f"`{w}`" for w in minfo["wait_queue"]]) if minfo["wait_queue"] else "None"
+                        mutex_rows.append({
+                            "Resource": rid,
+                            "Name": minfo["name"],
+                            "Status": status_str,
+                            "Wait Queue": waiters_str,
+                            "Ceiling Prio": minfo["ceiling"]
+                        })
+                    st.dataframe(pd.DataFrame(mutex_rows), use_container_width=True, hide_index=True)
+
+                    st.markdown("#### 🚦 Scheduler Queues")
+                    rq = snap["ready_queue"]
+                    bq = snap["blocked_queue"]
+
+                    if rq:
+                        rq_items = " → ".join([f"**`{item['task_id']}`** (eff={item['eff_prio']})" for item in rq])
+                        st.markdown(f"**Ready Queue:** {rq_items}")
+                    else:
+                        st.markdown("**Ready Queue:** *Empty (no tasks ready)*")
+
+                    if bq:
+                        bq_items = ", ".join([f"**`{item['task_id']}`** (waiting on `{item['blocked_on']}` held by `{item['holder']}`)" for item in bq])
+                        st.markdown(f"**Blocked Queue:** {bq_items}")
+                    else:
+                        st.markdown("**Blocked Queue:** *Empty (no tasks blocked)*")
+
+                # Visual Timeline with Current Step Marker
+                st.markdown("---")
+                st.subheader("📍 Execution Timeline Location")
+                step_fig = visualizations.create_gantt_chart(
+                    events,
+                    sim_res.get("task_results", []),
+                    total_time,
+                    title=f"Gantt Schedule with Active Inspection Pointer at t={cur_t}",
+                    marker_time=cur_t,
+                    marker_label="📍 Inspector"
+                )
+                st.plotly_chart(step_fig, use_container_width=True)
+
+                # Filterable Event Log
+                st.markdown("---")
+                st.subheader("📜 Event Log & Trace Filtering")
+                with st.expander("🔍 Event Log Filtering & Search Controls", expanded=True):
+                    f_col1, f_col2, f_col3 = st.columns(3)
+                    with f_col1:
+                        all_types = sorted(list(set(e.get("type", "") for e in events)))
+                        sel_types = st.multiselect("Filter by Event Type", all_types, default=[], key="ev_filt_types")
+                    with f_col2:
+                        all_tasks = sorted(list(set(e.get("task_id", "") for e in events if e.get("task_id"))))
+                        sel_tasks = st.multiselect("Filter by Task ID", all_tasks, default=[], key="ev_filt_tasks")
+                    with f_col3:
+                        search_text = st.text_input("Search in details or resource", "", key="ev_filt_search")
+
+                    scope = st.radio("Display Scope", ["Up to Current Step", "All Simulation Events"], horizontal=True, key="ev_filt_scope")
+
+                # Filter events
+                candidate_events = events[:st.session_state.step_event_idx + 1] if scope == "Up to Current Step" else events
+                filtered_events = []
+                for idx, e in enumerate(candidate_events):
+                    if sel_types and e.get("type") not in sel_types:
+                        continue
+                    if sel_tasks and e.get("task_id") not in sel_tasks:
+                        continue
+                    if search_text:
+                        s_lower = search_text.lower()
+                        match = (
+                            s_lower in e.get("details", "").lower() or 
+                            s_lower in e.get("resource_id", "").lower() or 
+                            s_lower in e.get("type", "").lower()
+                        )
+                        if not match:
+                            continue
+                    filtered_events.append((idx, e))
+
+                st.markdown(f"**Showing {len(filtered_events)} matching event(s):**")
+                display_log = []
+                for orig_idx, e in filtered_events:
+                    is_current = (orig_idx == st.session_state.step_event_idx)
+                    row_marker = "👉 " if is_current else ""
+                    display_log.append({
+                        "Step #": orig_idx + 1,
+                        "Time": e["time"],
+                        "Event": f"{row_marker}{e['type']}",
+                        "Task": e.get("task_id", ""),
+                        "Resource": e.get("resource_id", ""),
+                        "Base Prio": e.get("base_priority", ""),
+                        "Eff Prio": e.get("effective_priority", ""),
+                        "Details": e.get("details", "")
+                    })
+                st.dataframe(pd.DataFrame(display_log), use_container_width=True, height=280)
+
+                # Jump to specific event selectbox
+                jump_opts = [f"Step {idx+1}: [t={e['time']}] {e['type']} ({e.get('task_id', '')})" for idx, e in enumerate(events)]
+                chosen_jump = st.selectbox("🎯 Quick Jump to Event", jump_opts, index=st.session_state.step_event_idx)
+                chosen_idx = jump_opts.index(chosen_jump)
+                if chosen_idx != st.session_state.step_event_idx:
+                    st.session_state.step_event_idx = chosen_idx
+                    st.session_state.auto_play_active = False
+                    st.rerun()
+
+                # Handle Auto-replay advancement
+                if st.session_state.get("auto_play_active", False):
+                    if st.session_state.step_event_idx < len(events) - 1:
+                        time.sleep(replay_delay)
+                        st.session_state.step_event_idx += 1
+                        st.rerun()
+                    else:
+                        st.session_state.auto_play_active = False
+                        st.success("Replay reached conclusion.")
+
+        with tab_compare:
+            st.subheader("🔄 Multi-Protocol Execution Trace Comparison & Divergence Analysis")
+            st.markdown("Compare two execution traces on this identical workload to pinpoint divergence points, preemption differences, and blocking resolution.")
+
+            cmp_c1, cmp_c2, cmp_c3 = st.columns([2, 2, 1])
+            with cmp_c1:
+                cmp_proto_a = st.selectbox("Trace A Protocol", ["NONE", "PIP", "PCP"], index=0, key="cmp_p_a")
+            with cmp_c2:
+                cmp_proto_b = st.selectbox("Trace B Protocol", ["NONE", "PIP", "PCP"], index=1, key="cmp_p_b")
+            with cmp_c3:
+                st.write("")
+                st.write("")
+                st.button("⚡ Refresh Comparison", use_container_width=True)
+
+            # Retrieve or run simulations for both
+            wl_a = dict(st.session_state.current_workload)
+            wl_a["protocol"] = cmp_proto_a
+            res_a_raw = engine_client.simulate_workload(wl_a)
+            sim_a = res_a_raw.get("results", {})
+
+            wl_b = dict(st.session_state.current_workload)
+            wl_b["protocol"] = cmp_proto_b
+            res_b_raw = engine_client.simulate_workload(wl_b)
+            sim_b = res_b_raw.get("results", {})
+
+            if sim_a and sim_b:
+                diff_data = state_inspector.compare_execution_traces(
+                    sim_a, sim_b, cmp_proto_a, cmp_proto_b
+                )
+
+                # Divergence Callout Box
+                div_t = diff_data["divergence_time"]
+                if div_t is not None:
+                    st.markdown(f"""
+                    <div class='divergence-box'>
+                        <h4 style='color: #F0883E; margin-top: 0;'>⚡ Schedule Divergence Detected at Time t = {div_t}</h4>
+                        {diff_data['divergence_explanation']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.success(f"✅ {diff_data['divergence_explanation']}")
+
+                # Side-by-side KPI comparison cards
+                kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+                with kpi_col1:
+                    diff_avg = sim_b.get('avg_response_time', 0) - sim_a.get('avg_response_time', 0)
+                    st.metric(
+                        "Avg Response Time", 
+                        f"{sim_b.get('avg_response_time', 0):.2f} ticks", 
+                        f"{diff_avg:+.2f} vs {cmp_proto_a}",
+                        delta_color="inverse"
+                    )
+                with kpi_col2:
+                    diff_worst = sim_b.get('worst_response_time', 0) - sim_a.get('worst_response_time', 0)
+                    st.metric(
+                        "Worst Response Time", 
+                        f"{sim_b.get('worst_response_time', 0)} ticks", 
+                        f"{diff_worst:+d} vs {cmp_proto_a}",
+                        delta_color="inverse"
+                    )
+                with kpi_col3:
+                    diff_block = sim_b.get('total_blocked_time', 0) - sim_a.get('total_blocked_time', 0)
+                    st.metric(
+                        "Total Blocked Time", 
+                        f"{sim_b.get('total_blocked_time', 0)} ticks", 
+                        f"{diff_block:+d} vs {cmp_proto_a}",
+                        delta_color="inverse"
+                    )
+                with kpi_col4:
+                    diff_miss = sim_b.get('deadline_misses', 0) - sim_a.get('deadline_misses', 0)
+                    st.metric(
+                        "Deadline Misses", 
+                        f"{sim_b.get('deadline_misses', 0)}", 
+                        f"{diff_miss:+d} vs {cmp_proto_a}",
+                        delta_color="inverse"
+                    )
+
+                # Side-by-Side Task Results Table
+                st.markdown("#### 📊 Task-by-Task Metric Differences")
+                t_diff_df = pd.DataFrame([{
+                    "Task ID": td["task_id"],
+                    "Name": td["name"],
+                    "Base Prio": td["base_priority"],
+                    f"{cmp_proto_a} Response": td["resp_a"],
+                    f"{cmp_proto_b} Response": td["resp_b"],
+                    "Response Δ": td["resp_diff"],
+                    f"{cmp_proto_a} Blocked": td["blocked_a"],
+                    f"{cmp_proto_b} Blocked": td["blocked_b"],
+                    f"{cmp_proto_a} Miss?": "❌ YES" if td["miss_a"] else "✅ No",
+                    f"{cmp_proto_b} Miss?": "❌ YES" if td["miss_b"] else "✅ No",
+                } for td in diff_data["task_diffs"]])
+                st.dataframe(t_diff_df, use_container_width=True, hide_index=True)
+
+                # Side-by-Side Gantt Charts
+                st.markdown("#### 📈 Side-by-Side Execution Timelines")
+                g_c1, g_c2 = st.columns(2)
+                with g_c1:
+                    fig_a = visualizations.create_gantt_chart(
+                        sim_a.get("events", []),
+                        sim_a.get("task_results", []),
+                        sim_a.get("total_time", 50),
+                        title=f"Schedule under {cmp_proto_a}",
+                        marker_time=div_t,
+                        marker_label="⚡ Divergence"
+                    )
+                    st.plotly_chart(fig_a, use_container_width=True)
+                with g_c2:
+                    fig_b = visualizations.create_gantt_chart(
+                        sim_b.get("events", []),
+                        sim_b.get("task_results", []),
+                        sim_b.get("total_time", 50),
+                        title=f"Schedule under {cmp_proto_b}",
+                        marker_time=div_t,
+                        marker_label="⚡ Divergence"
+                    )
+                    st.plotly_chart(fig_b, use_container_width=True)
+
+                # Tick-by-tick schedule scrubber
+                st.markdown("#### 🔬 Tick-by-Tick Schedule Inspection")
+                scrub_t = st.slider("Inspect CPU State at Simulation Tick", 0, diff_data["max_time"] - 1, div_t if div_t is not None else 0, key="trace_cmp_tick_slider")
+                
+                sc_a = diff_data["sched_a"][scrub_t] if scrub_t < len(diff_data["sched_a"]) else "IDLE"
+                sc_b = diff_data["sched_b"][scrub_t] if scrub_t < len(diff_data["sched_b"]) else "IDLE"
+
+                tb_c1, tb_c2, tb_c3 = st.columns(3)
+                with tb_c1:
+                    st.markdown(f"**Tick:** `t = {scrub_t}`")
+                with tb_c2:
+                    st.markdown(f"**{cmp_proto_a} CPU Active Task:** `{'🟢 ' + sc_a if sc_a != 'IDLE' else '⚪ IDLE'}`")
+                with tb_c3:
+                    st.markdown(f"**{cmp_proto_b} CPU Active Task:** `{'🟢 ' + sc_b if sc_b != 'IDLE' else '⚪ IDLE'}`")
 
 # -----------------------------------------------------------------------------
 # PAGE D: EXECUTION TIMELINE
