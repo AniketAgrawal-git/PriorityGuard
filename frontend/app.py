@@ -11,6 +11,11 @@ import engine_client
 import visualizations
 import state_inspector
 import time
+import importlib
+
+importlib.reload(visualizations)
+importlib.reload(state_inspector)
+importlib.reload(engine_client)
 
 # Set Page Config
 st.set_page_config(
