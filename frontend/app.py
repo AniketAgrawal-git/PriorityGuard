@@ -532,6 +532,19 @@ elif selected_page == "Page C: Simulation Workspace":
                 </div>
                 """, unsafe_allow_html=True)
 
+                # Visual Timeline with Current Step Marker (Directly below Replay controls)
+                st.markdown("---")
+                st.subheader("📍 Execution Timeline Location & Gantt Progression")
+                step_fig = visualizations.create_gantt_chart(
+                    events,
+                    sim_res.get("task_results", []),
+                    total_time,
+                    title=f"Gantt Schedule with Active Inspection Pointer at t={cur_t}",
+                    marker_time=cur_t,
+                    marker_label="📍 Cursor"
+                )
+                st.plotly_chart(step_fig, use_container_width=True)
+
                 # 3 Panels: Task States, Mutexes, Queues
                 p_col1, p_col2 = st.columns([3, 2])
                 with p_col1:
@@ -599,19 +612,6 @@ elif selected_page == "Page C: Simulation Workspace":
                         st.markdown(f"**Blocked Queue:** {bq_items}")
                     else:
                         st.markdown("**Blocked Queue:** *Empty (no tasks blocked)*")
-
-                # Visual Timeline with Current Step Marker
-                st.markdown("---")
-                st.subheader("📍 Execution Timeline Location")
-                step_fig = visualizations.create_gantt_chart(
-                    events,
-                    sim_res.get("task_results", []),
-                    total_time,
-                    title=f"Gantt Schedule with Active Inspection Pointer at t={cur_t}",
-                    marker_time=cur_t,
-                    marker_label="📍 Inspector"
-                )
-                st.plotly_chart(step_fig, use_container_width=True)
 
                 # Filterable Event Log
                 st.markdown("---")
@@ -825,13 +825,88 @@ elif selected_page == "Page D: Execution Timeline":
     
     sim_res = get_or_run_simulation()
     if sim_res:
+        events = sim_res.get("events", [])
+        total_time = sim_res.get("total_time", 50)
+
+        # Interactive Replay & Scrub Controls on Page D
+        st.markdown("### 🎮 Interactive Gantt Replay & Step Controls")
+        r_c1, r_c2, r_c3, r_c4, r_c5, r_c6 = st.columns([1, 1, 1, 1, 1, 2])
+        with r_c1:
+            if st.button("⏮️ Start", key="d_start", use_container_width=True):
+                st.session_state.step_event_idx = 0
+                st.session_state.auto_play_active = False
+                st.rerun()
+        with r_c2:
+            if st.button("◀️ Prev", key="d_prev", use_container_width=True):
+                st.session_state.step_event_idx = max(0, st.session_state.get("step_event_idx", 0) - 1)
+                st.session_state.auto_play_active = False
+                st.rerun()
+        with r_c3:
+            if st.button("▶️ Next", key="d_next", use_container_width=True):
+                st.session_state.step_event_idx = min(len(events) - 1, st.session_state.get("step_event_idx", 0) + 1)
+                st.session_state.auto_play_active = False
+                st.rerun()
+        with r_c4:
+            if st.button("⏭️ End", key="d_end", use_container_width=True):
+                st.session_state.step_event_idx = len(events) - 1
+                st.session_state.auto_play_active = False
+                st.rerun()
+        with r_c5:
+            if st.button("🔄 Reset", key="d_reset", use_container_width=True):
+                st.session_state.step_event_idx = 0
+                st.session_state.auto_play_active = False
+                st.rerun()
+        with r_c6:
+            auto_play_d = st.toggle("▶️ Auto Replay Timeline", value=st.session_state.get("auto_play_active", False), key="d_autoplay")
+            st.session_state.auto_play_active = auto_play_d
+
+        cur_idx = st.session_state.get("step_event_idx", len(events) - 1)
+        cur_idx = max(0, min(cur_idx, len(events) - 1))
+
+        slider_d = st.slider("Scrub Timeline by Event Step", 0, len(events) - 1, cur_idx, key="d_slider")
+        if slider_d != cur_idx:
+            st.session_state.step_event_idx = slider_d
+            st.session_state.auto_play_active = False
+            st.rerun()
+
+        # Compute state at active step
+        active_idx = st.session_state.get("step_event_idx", len(events) - 1)
+        active_idx = max(0, min(active_idx, len(events) - 1))
+        snap = state_inspector.compute_system_snapshot(
+            st.session_state.current_workload,
+            events,
+            active_idx
+        )
+        cur_t = snap["time"]
+        runner = snap["current_runner"]
+        last_ev = snap["last_event"] or {}
+
+        d_m1, d_m2, d_m3 = st.columns(3)
+        with d_m1:
+            st.metric("⏱️ Timeline Cursor", f"t = {cur_t} ticks", f"Step {active_idx + 1} / {len(events)}")
+        with d_m2:
+            st.metric("💻 Active CPU Task", f"🟢 `{runner}`" if runner != "CPU IDLE" else "⚪ `IDLE`")
+        with d_m3:
+            st.metric("⚡ Event at Cursor", f"`{last_ev.get('type', 'N/A')}`", f"Task: {last_ev.get('task_id', 'None')}")
+
         fig = visualizations.create_gantt_chart(
-            sim_res.get("events", []),
+            events,
             sim_res.get("task_results", []),
-            sim_res.get("total_time", 50)
+            total_time,
+            title=f"Task Execution Gantt Timeline (Replay Cursor at t={cur_t})",
+            marker_time=cur_t,
+            marker_label="📍 Cursor"
         )
         st.plotly_chart(fig, use_container_width=True)
-        
+
+        if st.session_state.get("auto_play_active", False):
+            if st.session_state.step_event_idx < len(events) - 1:
+                time.sleep(0.8)
+                st.session_state.step_event_idx += 1
+                st.rerun()
+            else:
+                st.session_state.auto_play_active = False
+
         st.subheader("Task Results Summary")
         tr_df = pd.DataFrame([{
             "Task ID": tr["task_id"],
