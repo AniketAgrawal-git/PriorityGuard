@@ -454,6 +454,47 @@ public:
         
         return wc;
     }
+    
+    // Scenario demonstrating difference between PIP and PCP (Ceiling Blocking on free resource)
+    static WorkloadConfig pcpCeilingBlock() {
+        WorkloadConfig wc;
+        wc.name = "PCP Ceiling Blocking (PIP vs PCP)";
+        wc.description = "Demonstrates PCP blocking a task on a FREE resource to prevent chained blocking, while PIP allows greedy acquisition.";
+        wc.protocol = Protocol::NONE;
+        wc.simulation_limit = 50;
+
+        ResourceConfig r1, r2;
+        r1.id = "R1"; r1.name = "Resource_1";
+        r2.id = "R2"; r2.name = "Resource_2";
+        wc.resources.push_back(r1);
+        wc.resources.push_back(r2);
+
+        // Task L (Priority 1): locks R1
+        TaskConfig tl;
+        tl.id = "TL"; tl.name = "Task_L";
+        tl.priority = 1; tl.release_time = 0; tl.execution_time = 8; tl.deadline = 30;
+        CriticalSection cs_l; cs_l.resource_id = "R1"; cs_l.duration = 5; cs_l.offset = 1;
+        tl.critical_sections.push_back(cs_l);
+        wc.tasks.push_back(tl);
+
+        // Task M (Priority 6): requests R2 at t=2
+        TaskConfig tm;
+        tm.id = "TM"; tm.name = "Task_M";
+        tm.priority = 6; tm.release_time = 2; tm.execution_time = 5; tm.deadline = 25;
+        CriticalSection cs_m; cs_m.resource_id = "R2"; cs_m.duration = 3; cs_m.offset = 0;
+        tm.critical_sections.push_back(cs_m);
+        wc.tasks.push_back(tm);
+
+        // Task H (Priority 10): arrives at t=4, needs R1
+        TaskConfig th;
+        th.id = "TH"; th.name = "Task_H";
+        th.priority = 10; th.release_time = 4; th.execution_time = 4; th.deadline = 15;
+        CriticalSection cs_h; cs_h.resource_id = "R1"; cs_h.duration = 2; cs_h.offset = 0;
+        th.critical_sections.push_back(cs_h);
+        wc.tasks.push_back(th);
+
+        return wc;
+    }
 };
 
 } // namespace pg

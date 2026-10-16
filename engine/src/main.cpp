@@ -204,12 +204,14 @@ json handlePreset(const json& input) {
             wc = WorkloadGenerator::nestedBlocking();
         } else if (preset_name == "deadline_miss") {
             wc = WorkloadGenerator::deadlineMiss();
+        } else if (preset_name == "pcp_ceiling_block") {
+            wc = WorkloadGenerator::pcpCeilingBlock();
         } else {
             json response;
             response["status"] = "error";
             response["message"] = "Unknown preset: " + preset_name +
                 ". Available: classic_inversion, no_inversion, multiple_waiters, "
-                "nested_blocking, deadline_miss";
+                "nested_blocking, deadline_miss, pcp_ceiling_block";
             return response;
         }
         

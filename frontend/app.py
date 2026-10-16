@@ -122,7 +122,8 @@ preset_options = {
     "No Inversion": "no_inversion",
     "Multiple Waiting Tasks": "multiple_waiters",
     "Nested Blocking": "nested_blocking",
-    "Deadline Miss Scenario": "deadline_miss"
+    "Deadline Miss Scenario": "deadline_miss",
+    "PCP Ceiling Blocking (PIP vs PCP)": "pcp_ceiling_block"
 }
 selected_preset = st.sidebar.selectbox("Load Scenario", list(preset_options.keys()))
 if st.sidebar.button("Apply Preset"):

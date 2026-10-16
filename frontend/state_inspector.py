@@ -340,3 +340,4 @@ def compare_execution_traces(
         "total_blocked_a": sim_a.get("total_blocked_time", 0),
         "total_blocked_b": sim_b.get("total_blocked_time", 0),
     }
+
