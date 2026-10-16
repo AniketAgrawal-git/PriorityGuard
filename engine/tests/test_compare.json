@@ -1,0 +1,27 @@
+{
+  "command": "compare",
+  "workload": {
+    "name": "Classic Priority Inversion",
+    "description": "Test",
+    "simulation_limit": 50,
+    "resources": [{"id": "R1", "name": "Shared_Mutex"}],
+    "tasks": [
+      {
+        "id": "TL", "name": "Task_L", "priority": 1, "release_time": 0,
+        "execution_time": 10, "deadline": 30,
+        "critical_sections": [{"resource_id": "R1", "duration": 6, "offset": 1}]
+      },
+      {
+        "id": "TM", "name": "Task_M", "priority": 5, "release_time": 2,
+        "execution_time": 5, "deadline": 20,
+        "critical_sections": []
+      },
+      {
+        "id": "TH", "name": "Task_H", "priority": 10, "release_time": 3,
+        "execution_time": 4, "deadline": 15,
+        "critical_sections": [{"resource_id": "R1", "duration": 2, "offset": 0}]
+      }
+    ]
+  }
+}
+

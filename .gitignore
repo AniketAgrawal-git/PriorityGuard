@@ -1,0 +1,33 @@
+# Compiled binaries and executables
+*.exe
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+
+# Build directories
+build/
+bin/
+out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.venv
+venv/
+env/
+.env
+
+# Streamlit config / cache
+.streamlit/
+
+# Temporary / Scratch debug files
+tests/debug_gantt.py
+tests/test_timeline.py
+tests/test_robust_gantt.py
+tests/trace_tm.py
